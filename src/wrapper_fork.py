@@ -16,13 +16,13 @@ from multiprocessing import Process
 
 def run_multiple_scrapes():
 
-    NUM_PROC = 4
+    NUM_PROC = 1
     N_villages = 50
     #run_soilhealth_scraper(project_path, download_path, N_villages = 5)
     project_path = "/Users/gopal/Projects/DataScience/india_soilhealth"
     download_path = "/Users/gopal/Downloads"
     
-    purge_tempfiles(project_path, download_path)
+    # purge_tempfiles(project_path, download_path)
 
     processes = []
     
@@ -39,7 +39,7 @@ def run_multiple_scrapes():
 
 if __name__ == '__main__':
     
-    NUM_TIMES = 10
+    NUM_TIMES = 1
     
     for j in range(NUM_TIMES):
         run_multiple_scrapes()

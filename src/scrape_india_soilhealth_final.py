@@ -191,6 +191,10 @@ def get_subdist_villages(bi, bmeta, paths, driver, select_params):
 
 # %%
 def download_village_data(vi, vmeta, paths, driver, select_params):
+    """
+    This function checks to see if state-district-subdistrict-village file exists
+    If so, it moves on. Otherwise, it loads and downloads data for the village
+    """
     
     village_name = vmeta['villages'][vi]
     village_filename = re.sub("[\s\/]","",
@@ -325,6 +329,10 @@ def get_csv_file_matching_village_name(download_dir_path, village_name):
     current_time = datetime.now()
     download_filenames = [f for f in os.listdir(download_dir_path) if re.match('NutrientsStatusReportFarmerWise.*\.csv',f)]
     
+
+    print('pid: ' + str(os.getpid()) + '. download files:\n')
+    print(download_filenames)
+    
     download_list = []
     for file in download_filenames:
         #file = temp_filenames[1]
@@ -333,16 +341,19 @@ def get_csv_file_matching_village_name(download_dir_path, village_name):
         if current_time - mod_time > timedelta(minutes=1):
             os.remove(download_filepath) # delete if file is more than a minute old
         else: # if file is within download timeframe
-            file_village = pd.read_csv(download_filepath).village_name[1]
+            file_village = pd.read_csv(download_filepath).village_name[0]
             if file_village.lower() == village_name.lower():
                 download_list.append([village_name, mod_time, download_filepath])
     
-    download_files = pd.DataFrame(download_list, columns = ['village', 'modtime', 'path'])
+    download_files_matching = pd.DataFrame(download_list, columns = ['village', 'modtime', 'path'])
     
-    if download_files.shape[0] == 0:
+    if download_files_matching.shape[0] == 0:
         print('no download files found with village matching ', village_name)
+        
+    print('pid: ' + str(os.getpid()) + '. download files:\n')
+    print(download_files_matching.sort_values('modtime'))
     
-    return download_files.sort_values('modtime')['path'][0]
+    return download_files_matching.sort_values('modtime')['path'][0]
             
 # %%
 
@@ -434,20 +445,24 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
                     # Try to download each village. If it fails, skip, reset select_params, and proceed
                     try:
                         select_params = download_village_data(vi, vmeta, paths, driver, select_params)
-                    except:
-                        print('pid: ' + str(os.getpid()) + '. download_village_data for',vmeta['villages'][vi],
+                    except Exception as e:
+                        print(e)
+                        print('pid: ' + str(os.getpid()) + '. ERROR -- download_village_data for',vmeta['villages'][vi],
                               'village failed. skipping and resetting select_params.')
                         select_params['state_select'] =  0
                         select_params['district_select']= 0
                         select_params['subdist_select'] = 0
                         select_params['village_select'] = 0
                     finally:
-                        if not select_params['village_select'] == 0:
-                            print('moving to next')
+                        pass
                     
                     if select_params['counter'] >= N_villages:
                         driver.quit()
+                        print('finished with all ' + str(N_villages) + ' villages. Exiting.')
                         return(0)
+                    
+                    if not select_params['village_select'] == 0:
+                        print('moving to next')
     
 
 # %%
@@ -455,4 +470,4 @@ if __name__ == '__main__':
     project_path = "/Users/gopal/Projects/DataScience/india_soilhealth"
     download_path = "/Users/gopal/Downloads"
     purge_tempfiles(project_path, download_path)
-    run_soilhealth_scraper(project_path, download_path, N_villages = 1)
+    run_soilhealth_scraper(project_path, download_path, N_villages = 5)
