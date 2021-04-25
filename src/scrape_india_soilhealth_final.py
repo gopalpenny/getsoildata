@@ -204,6 +204,8 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
     # Only fetch data for village if it does not already exist AND
     # if there is no temporary file corresponding to the village
     if not os.path.isfile(village_filepath) and not os.path.isfile(village_temp_filepath):
+        print('pid: ' + str(os.getpid()) + '. starting ' + village_filepath + '\n')
+
         Path(village_temp_filepath).touch()
         
         driver.switch_to.default_content()
@@ -252,7 +254,7 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
                 EC.frame_to_be_available_and_switch_to_it(0)
             )
         finally:
-            print('switched to frame')
+            print('pid: ' + str(os.getpid()) + ' switched to frame')
 
         # Wait for save CSV button to be clickable
         try:
@@ -260,10 +262,10 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
                 EC.element_to_be_clickable((By.ID, 'ReportViewer1_ctl05_ctl04_ctl00_ButtonImg'))
             )
         except:
-            print('Save data button did not load within alotted time. Skipping ' + village_filename)
+            print('pid: ' + str(os.getpid()) + ' Save data button did not load within alotted time. Skipping ' + village_filename)
             # return select_params
         finally:
-            print('Save button is clickable')
+            print('pid: ' + str(os.getpid()) + ' Save button is clickable')
             
         
         # Wait for save CSV button to be selected
@@ -272,10 +274,10 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
                 EC.visibility_of_element_located((By.ID, 'VisibleReportContentReportViewer1_ctl09'))
             )
         except:
-            print('Visibility of table (VisibleReportContentReportViewer1_ctl09) no ID in alotted time. Skipping ' + village_filename)
+            print('pid: ' + str(os.getpid()) + ' Visibility of table (VisibleReportContentReportViewer1_ctl09) no ID in alotted time. Skipping ' + village_filename)
             # return select_params
         finally:
-            print('Table is visible')
+            print('pid: ' + str(os.getpid()) + ' Table is visible')
 
         # wait 1 second to ensure button can be clicked
         sleep(1)
@@ -290,10 +292,10 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
                 EC.element_to_be_clickable((By.LINK_TEXT, 'CSV (comma delimited)'))
             )
         except:
-            print('Save CSV option did not load within alotted time. Skipping ' + village_filename)
+            print('pid: ' + str(os.getpid()) + ' Save CSV option did not load within alotted time. Skipping ' + village_filename)
             return select_params
         finally:
-            print('CSV option is clickable')
+            print('pid: ' + str(os.getpid()) + ' CSV option is clickable')
 
         # wait 1 second to ensure button can be clicked
         sleep(2)
@@ -305,8 +307,11 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
         # 
         sleep(5)
         downloaded_village_file = get_csv_file_matching_village_name(paths['download_path'], village_name)
+        print('pid: ' + str(os.getpid()) + ' downloaded csv file')
         os.rename(downloaded_village_file, village_filepath)
+        print('pid: ' + str(os.getpid()) + ' moved csv file')
         os.remove(village_temp_filepath)
+        print('pid: ' + str(os.getpid()) + ' removed tempfile')
         
         select_params['counter'] = select_params['counter'] + 1
         
@@ -342,11 +347,11 @@ def get_csv_file_matching_village_name(download_dir_path, village_name):
 # %%
 
 
-
-# %%
-
-def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
-    
+def purge_tempfiles(project_path, download_path):
+    """
+    Run this only once to purge all temporary files. Then can run 
+    multiple instances of run_soilhealth_scraper().
+    """
     paths = {'data_filepath': os.path.join(project_path, "data"),
          'index_filepath': os.path.join(project_path, "index"),
          'download_path': download_path
@@ -362,6 +367,15 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
         mod_time = datetime.fromtimestamp(os.path.getmtime(tempfile_path))
         if current_time - mod_time > timedelta(minutes=1):
             os.remove(tempfile_path)
+
+# %%
+
+def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
+    
+    paths = {'data_filepath': os.path.join(project_path, "data"),
+         'index_filepath': os.path.join(project_path, "index"),
+         'download_path': download_path
+         }
     
     # start selenium driver and load webpage
     driver = webdriver.Chrome('/Users/gopal/opt/anaconda3/bin/chromedriver')
@@ -421,7 +435,7 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
                     try:
                         select_params = download_village_data(vi, vmeta, paths, driver, select_params)
                     except:
-                        print('download_village_data for',vmeta['villages'][vi],
+                        print('pid: ' + str(os.getpid()) + '. download_village_data for',vmeta['villages'][vi],
                               'village failed. skipping and resetting select_params.')
                         select_params['state_select'] =  0
                         select_params['district_select']= 0
@@ -440,4 +454,5 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
 if __name__ == '__main__':
     project_path = "/Users/gopal/Projects/DataScience/india_soilhealth"
     download_path = "/Users/gopal/Downloads"
+    purge_tempfiles(project_path, download_path)
     run_soilhealth_scraper(project_path, download_path, N_villages = 1)
