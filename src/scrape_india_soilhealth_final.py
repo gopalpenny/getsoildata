@@ -13,7 +13,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
-#from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup
 #import requests
 import os
 #import subprocess
@@ -39,7 +39,8 @@ def get_state_districts(si, smeta, paths, driver, select_params):
     # si = 4
     state_name = smeta['states'][si]
     state_filepath = os.path.join(paths['index_filepath'], state_name + "_districts.csv")
-    
+    state_filepath = re.sub("[\/\*]","",state_filepath)
+
     if os.path.isfile(state_filepath):
         state_districts_df = pd.read_csv(state_filepath)
     else:
@@ -81,7 +82,9 @@ def get_district_subdists(di, dmeta, paths, driver, select_params):
     # di = 1
     district_name = dmeta['districts'][di]
     district_filepath = os.path.join(paths['index_filepath'], dmeta['state_name'] + "-" + district_name + "_subdists.csv")
-    
+    district_filepath = re.sub("[\/\*]","",district_filepath)
+
+
     if os.path.isfile(district_filepath):
         district_subdists_df = pd.read_csv(district_filepath)
     else:
@@ -136,11 +139,11 @@ def get_subdist_villages(bi, bmeta, paths, driver, select_params):
     # bi = 1
     subdist_name = bmeta['subdists'][bi]
     subdistrict_filepath = os.path.join(paths['index_filepath'], bmeta['state_name'] + "-" + bmeta['district_name'] + "-" + subdist_name + "_villages.csv")
+    subdistrict_filepath = re.sub("[\/\*]","",subdistrict_filepath)
     
     if os.path.isfile(subdistrict_filepath):
         subdist_villages_df = pd.read_csv(subdistrict_filepath)
     else:
-        subdist_dropdown = Select(driver.find_element_by_name("sub_district_code"))
         
         # If the state or district have not yet been selected -- select them and update select_params
         if select_params['state_select'] == 0:
@@ -153,6 +156,7 @@ def get_subdist_villages(bi, bmeta, paths, driver, select_params):
             district_dropdown.select_by_visible_text(bmeta['district_name'])
             sleep(2)
             
+        subdist_dropdown = Select(driver.find_element_by_name("sub_district_code"))
         subdist_dropdown.select_by_index(bmeta['subdist_index'][bi])
         
         sleep(2)
@@ -190,7 +194,33 @@ def get_subdist_villages(bi, bmeta, paths, driver, select_params):
     return vmeta
 
 # %%
-def download_village_data(vi, vmeta, paths, driver, select_params):
+
+def scrape_soil_table(soup):
+    """
+    This function takes soup html as input
+    It finds the table containing the element with 'Sl.No.'
+    It then converts all values in the table to a pandas df
+    """
+    tag_sl = soup.find(text=re.compile('Sl.No.'))
+    table = tag_sl.findParent('table')
+    table_rows = table.find_all('tr')
+    
+    data = []
+    
+    for row in table_rows:
+        cols = row.find_all('td')
+        cols = [ele.text.strip() for ele in cols]
+        data.append([ele for ele in cols]) # Get rid of empty values
+        
+    df_prep = pd.DataFrame(data)
+    df = df_prep.iloc[3:, 1:]
+    df.columns = df_prep.iloc[2, 1:]
+    
+    return df
+
+
+# %%
+def download_village_data(vi, vmeta, paths, driver, select_params, Verbose):
     """
     This function checks to see if state-district-subdistrict-village file exists
     If so, it moves on. Otherwise, it loads and downloads data for the village
@@ -202,13 +232,13 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
 
 
     
-    village_filepath = os.path.join(paths['data_filepath'], village_filename)
+    village_filepath = re.sub("[\/\*]","",os.path.join(paths['data_filepath'], village_filename))
     village_temp_filepath = re.sub("\.csv","_temp.txt",village_filepath)
     
     # Only fetch data for village if it does not already exist AND
     # if there is no temporary file corresponding to the village
     if not os.path.isfile(village_filepath) and not os.path.isfile(village_temp_filepath):
-        print('pid: ' + str(os.getpid()) + '. starting ' + village_filepath + '\n')
+        print('pid: ' + str(os.getpid()) + '. start ' + village_filename)
 
         Path(village_temp_filepath).touch()
         
@@ -258,7 +288,7 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
                 EC.frame_to_be_available_and_switch_to_it(0)
             )
         finally:
-            print('pid: ' + str(os.getpid()) + ' switched to frame')
+            if Verbose: print('pid: ' + str(os.getpid()) + ' switched to frame')
 
         # Wait for save CSV button to be clickable
         try:
@@ -269,7 +299,7 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
             print('pid: ' + str(os.getpid()) + ' Save data button did not load within alotted time. Skipping ' + village_filename)
             # return select_params
         finally:
-            print('pid: ' + str(os.getpid()) + ' Save button is clickable')
+            if Verbose: print('pid: ' + str(os.getpid()) + ' Save button is clickable')
             
         
         # Wait for save CSV button to be selected
@@ -281,48 +311,67 @@ def download_village_data(vi, vmeta, paths, driver, select_params):
             print('pid: ' + str(os.getpid()) + ' Visibility of table (VisibleReportContentReportViewer1_ctl09) no ID in alotted time. Skipping ' + village_filename)
             # return select_params
         finally:
-            print('pid: ' + str(os.getpid()) + ' Table is visible')
+            if Verbose: print('pid: ' + str(os.getpid()) + ' Table is visible')
 
         # wait 1 second to ensure button can be clicked
         sleep(1)
 
-
-        # Save the data
-        save_button = driver.find_element_by_id('ReportViewer1_ctl05_ctl04_ctl00_ButtonImg')
-        save_button.click()
-
-        try:
-            element = WebDriverWait(driver, 10).until(
-                EC.element_to_be_clickable((By.LINK_TEXT, 'CSV (comma delimited)'))
-            )
-        except:
-            print('pid: ' + str(os.getpid()) + ' Save CSV option did not load within alotted time. Skipping ' + village_filename)
-            return select_params
-        finally:
-            print('pid: ' + str(os.getpid()) + ' CSV option is clickable')
-
-        # wait 1 second to ensure button can be clicked
-        sleep(2)
-        csv_button = driver.find_element_by_link_text("CSV (comma delimited)")
-        csv_button.click()
-
-        driver.switch_to.default_content()
-
-        # 
-        sleep(5)
-        downloaded_village_file = get_csv_file_matching_village_name(paths['download_path'], village_name)
-        print('pid: ' + str(os.getpid()) + ' downloaded csv file')
-        os.rename(downloaded_village_file, village_filepath)
-        print('pid: ' + str(os.getpid()) + ' moved csv file')
-        os.remove(village_temp_filepath)
-        print('pid: ' + str(os.getpid()) + ' removed tempfile')
+        # Get source of new frame
+        page_source_w_all = driver.page_source
+        soup = BeautifulSoup(page_source_w_all, "lxml")
         
+        soil_table = scrape_soil_table(soup) # scrape the table
+        
+        # If soil tale is greater than 45 rows -- download csv using button
+        # otherwise scrape data directly
+        if soil_table.shape[0] < 45:
+            # scrape directly
+            soil_table.to_csv(village_filepath)
+        else:
+            # Save the data
+            save_button = driver.find_element_by_id('ReportViewer1_ctl05_ctl04_ctl00_ButtonImg')
+            save_button.click()
+    
+            try:
+                element = WebDriverWait(driver, 10).until(
+                    EC.element_to_be_clickable((By.LINK_TEXT, 'CSV (comma delimited)'))
+                )
+            except:
+                print('pid: ' + str(os.getpid()) + ' Save CSV option did not load within alotted time. Skipping ' + village_filename)
+                return select_params
+            finally:
+                if Verbose: print('pid: ' + str(os.getpid()) + ' CSV option is clickable')
+    
+            # wait 1 second to ensure button can be clicked
+            sleep(2)
+            csv_button = driver.find_element_by_link_text("CSV (comma delimited)")
+            csv_button.click()
+    
+    
+            # 
+            sleep(5)
+            
+            # name name of village in table
+            table_village_name = soil_table["Village Name"].iloc[2]
+            
+            # download via csv button
+            downloaded_village_file = get_csv_file_matching_village_name(paths['download_path'], table_village_name)
+            if Verbose: print('pid: ' + str(os.getpid()) + ' downloaded csv file')
+            os.rename(downloaded_village_file, village_filepath)
+            if Verbose: print('pid: ' + str(os.getpid()) + ' moved csv file')
+        
+        
+        # Remove temporary village file
+        os.remove(village_temp_filepath) # remove tempfile
+        driver.switch_to.default_content()
+       
         select_params['counter'] = select_params['counter'] + 1
         
-        print('pid: ' + str(os.getpid()) + '. saved ' + village_filepath + '. Done with ' + str(select_params['counter']) + ' villages.\n')
+        print('pid: ' + str(os.getpid()) + '. saved ' + village_filename + '. Finished ' + str(select_params['counter']) + ' villages.')
         
     return select_params
 
+    
 # %%
 def get_csv_file_matching_village_name(download_dir_path, village_name):
     
@@ -354,7 +403,7 @@ def get_csv_file_matching_village_name(download_dir_path, village_name):
     print(download_files_matching.sort_values('modtime'))
     
     return download_files_matching.sort_values('modtime')['path'][0]
-            
+                    
 # %%
 
 
@@ -382,14 +431,16 @@ def purge_tempfiles(project_path, download_path):
 # %%
 
 def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
+    Verbose = False
     
+    # project_path = 'C:\\Users\\divysolo\\Documents\\Gopal\\india_soilhealth'
     paths = {'data_filepath': os.path.join(project_path, "data"),
          'index_filepath': os.path.join(project_path, "index"),
          'download_path': download_path
          }
     
     # start selenium driver and load webpage
-    driver = webdriver.Chrome('/Users/gopal/opt/anaconda3/bin/chromedriver')
+    driver = webdriver.Chrome('C:\\Users\\divysolo\\chromedriver')
     driver.get("https://soilhealth.dac.gov.in/PublicReports/NutrientsStatusReportFarmerWise")
     
     # Load states from States dropdown
@@ -444,17 +495,18 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
                     # vi = 2
                     # Try to download each village. If it fails, skip, reset select_params, and proceed
                     try:
-                        select_params = download_village_data(vi, vmeta, paths, driver, select_params)
+                        select_params = download_village_data(vi, vmeta, paths, driver, select_params, Verbose)
                     except Exception as e:
                         print(e)
                         print('pid: ' + str(os.getpid()) + '. ERROR -- download_village_data for',vmeta['villages'][vi],
-                              'village failed. skipping and resetting select_params.')
+                              'village failed. Skipping.')
                         select_params['state_select'] =  0
                         select_params['district_select']= 0
                         select_params['subdist_select'] = 0
                         select_params['village_select'] = 0
                     finally:
-                        pass
+                        driver.switch_to.default_content()
+
                     
                     if select_params['counter'] >= N_villages:
                         driver.quit()
@@ -462,12 +514,12 @@ def run_soilhealth_scraper(project_path, download_path, N_villages = 1):
                         return(0)
                     
                     if not select_params['village_select'] == 0:
-                        print('moving to next')
+                        if Verbose: print('moving to next')
     
 
 # %%
 if __name__ == '__main__':
-    project_path = "/Users/gopal/Projects/DataScience/india_soilhealth"
-    download_path = "/Users/gopal/Downloads"
-    purge_tempfiles(project_path, download_path)
-    run_soilhealth_scraper(project_path, download_path, N_villages = 5)
+    project_path = 'C:\\Users\\divysolo\\Documents\\Gopal\\india_soilhealth'
+    download_path = "C:\\Users\\divysolo\\Downloads"
+    # purge_tempfiles(project_path, download_path)
+    run_soilhealth_scraper(project_path, download_path, N_villages = 2)
